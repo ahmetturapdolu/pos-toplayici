@@ -34,9 +34,18 @@
       border-radius: 7px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
       pointer-events: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    #scan-box.found { border-color: #ffea00; }
+    /* 1 saniye bekleme süresinde turuncu/kehribar */
+    #scan-box.locking {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 12px rgba(245, 158, 11, 0.75);
+    }
+    /* Okuma onaylandığında / eklendiğinde parlak sarı */
+    #scan-box.found {
+      border-color: #ffea00;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 14px rgba(255, 234, 0, 0.85);
+    }
     #scan-hint {
       position: absolute;
       bottom: 6px;
@@ -280,6 +289,7 @@
   <script>
     const video = document.getElementById("video");
     const scanBox = document.getElementById("scan-box");
+    const scanHint = document.getElementById("scan-hint");
     const amountInput = document.getElementById("amount-input");
     const btnYes = document.getElementById("btn-yes");
     const btnNo = document.getElementById("btn-no");
@@ -294,10 +304,14 @@
     let videoTrack = null;
     let torchOn = false;
     let autoYes = false;
-    let waitingConfirm = false;
     let totalCents = 0;
     let worker = null;
     let audioCtx = null;
+
+    // Otomatik okuma 1 saniye sabitleme durumu
+    let pendingAutoCents = null;
+    let pendingAutoStart = 0;
+    const AUTO_HOLD_MS = 1000;
 
     function playSoftBeep() {
       try {
@@ -325,6 +339,18 @@
       } catch (e) {}
     }
 
+    function setBoxState(state, hintText) {
+      scanBox.classList.remove("locking", "found");
+      if (state) scanBox.classList.add(state);
+      if (hintText) scanHint.textContent = hintText;
+    }
+
+    function resetAutoLock() {
+      pendingAutoCents = null;
+      pendingAutoStart = 0;
+      setBoxState(null, "Tutarı yeşil kutunun içine getirin");
+    }
+
     async function keepScreenAwake() {
       try {
         if ("wakeLock" in navigator) {
@@ -339,7 +365,11 @@
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
         video.srcObject = stream;
@@ -367,26 +397,33 @@
       autoYes = !autoYes;
       autoYesBtn.textContent = autoYes ? "Otomatik Evet: Açık" : "Otomatik Evet: Kapalı";
       autoYesBtn.classList.toggle("on", autoYes);
-
-      const currentCents = parseInputToCents(amountInput.value);
-      if (autoYes && currentCents !== null) {
-        addAmountToList(currentCents);
-        resetCandidate();
-      }
+      resetAutoLock();
     }
 
     async function initOCR() {
       worker = await Tesseract.createWorker("eng");
       await worker.setParameters({
-        tessedit_char_whitelist: "0123456789.,TL₺ "
+        tessedit_char_whitelist: "0123456789., ",
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
       });
       scanLoop();
     }
 
+    // OCR metninden anlamlı tutarı ayıkla (kurşun/kuruş formatını kontrol eder)
     function parseAmount(rawText) {
-      const match = rawText.match(/(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/);
-      if (!match) return null;
-      return parseInputToCents(match[1]);
+      if (!rawText) return null;
+      const cleanedText = rawText.replace(/\s+/g, " ");
+      const matches = cleanedText.match(/\d{1,3}(?:[.,]\d{3})*[.,]\d{2}/g);
+      if (!matches || matches.length === 0) return null;
+
+      // Satırda birden fazla tutar varsa genellikle toplam/son tutar sağda/sonda olur
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const cents = parseInputToCents(matches[i]);
+        if (cents !== null && cents >= 100 && cents <= 99999999) {
+          return cents;
+        }
+      }
+      return null;
     }
 
     function parseInputToCents(raw) {
@@ -398,6 +435,12 @@
         cleaned = cleaned.replace(/\./g, "").replace(",", ".");
       } else if (cleaned.includes(",")) {
         cleaned = cleaned.replace(",", ".");
+      } else if (cleaned.includes(".")) {
+        const parts = cleaned.split(".");
+        // Tek nokta ve tam 3 hane ise binlik ayırıcı olabilir (ör. 1.000 -> 1000.00)
+        if (parts.length === 2 && parts[1].length === 3) {
+          cleaned = parts[0] + parts[1];
+        }
       }
 
       const val = parseFloat(cleaned);
@@ -419,7 +462,6 @@
     function onManualInput() {
       const parsed = parseInputToCents(amountInput.value);
       if (parsed !== null) {
-        waitingConfirm = true;
         btnYes.disabled = false;
         btnNo.disabled = false;
       } else {
@@ -457,39 +499,71 @@
 
     async function scanLoop() {
       const isEditing = document.activeElement === amountInput;
-      if (!waitingConfirm && !isEditing && video.readyState === video.HAVE_ENOUGH_DATA && worker) {
+
+      if (!isEditing && video.readyState === video.HAVE_ENOUGH_DATA && worker) {
         const vw = video.videoWidth;
         const vh = video.videoHeight;
         const cropW = Math.floor(vw * 0.82);
-        const cropH = Math.floor(vh * 0.22);
+        const cropH = Math.floor(vh * 0.16);
         const cropX = Math.floor((vw - cropW) / 2);
-        const cropY = Math.floor((vh - cropH) / 2);
+        const cropY = Math.floor(vh * 0.52 - cropH / 2);
 
         canvas.width = cropW;
         canvas.height = cropH;
+        ctx.save();
+        ctx.filter = "grayscale(100%) contrast(175%) brightness(105%)";
         ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        ctx.restore();
 
         try {
           const { data: { text } } = await worker.recognize(canvas);
           const foundCents = parseAmount(text);
+
           if (foundCents !== null) {
+            const formatted = formatCents(foundCents);
+
             if (autoYes) {
-              addAmountToList(foundCents);
-              scanBox.classList.add("found");
-              setTimeout(() => scanBox.classList.remove("found"), 250);
+              const now = Date.now();
+              if (pendingAutoCents === foundCents) {
+                const elapsed = now - pendingAutoStart;
+                if (elapsed >= AUTO_HOLD_MS) {
+                  addAmountToList(foundCents);
+                  setBoxState("found", `Eklendi: ${formatted} TL`);
+                  pendingAutoCents = null;
+                  pendingAutoStart = 0;
+                  setTimeout(() => {
+                    if (autoYes && pendingAutoCents === null) {
+                      setBoxState(null, "Tutarı yeşil kutunun içine getirin");
+                    }
+                  }, 300);
+                } else {
+                  const kalan = Math.max(0.1, (AUTO_HOLD_MS - elapsed) / 1000).toFixed(1);
+                  setBoxState("locking", `Sabitleniyor (${kalan} sn): ${formatted} TL`);
+                }
+              } else {
+                pendingAutoCents = foundCents;
+                pendingAutoStart = now;
+                setBoxState("locking", `Sabitleniyor (1.0 sn): ${formatted} TL`);
+              }
             } else {
-              waitingConfirm = true;
-              scanBox.classList.add("found");
-              amountInput.value = formatCents(foundCents);
-              btnYes.disabled = false;
-              btnNo.disabled = false;
+              // Otomatik Evet kapalı: onay beklerken bile yeni okunan tutar kutuyu günceller
+              if (amountInput.value !== formatted) {
+                amountInput.value = formatted;
+                btnYes.disabled = false;
+                btnNo.disabled = false;
+                setBoxState("found", `Okunan: ${formatted} TL — Onaylayın veya düzeltin`);
+              }
             }
+          } else if (autoYes && pendingAutoCents !== null) {
+            // Okuma kaybolduysa 1 saniye sayacını sıfırla
+            resetAutoLock();
           }
         } catch (e) {
           console.error(e);
         }
       }
-      setTimeout(scanLoop, 450);
+
+      setTimeout(scanLoop, 220);
     }
 
     function confirmYes() {
@@ -504,11 +578,10 @@
     }
 
     function resetCandidate() {
-      waitingConfirm = false;
       amountInput.value = "";
-      scanBox.classList.remove("found");
       btnYes.disabled = true;
       btnNo.disabled = true;
+      resetAutoLock();
     }
 
     async function copyTotal() {
