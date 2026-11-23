@@ -4,16 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>POS Slip Toplayıcı</title>
-  <!-- Tarayıcıda çalışan OCR kütüphanesi -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
     body { height: 100dvh; display: flex; flex-direction: column; background: #111; color: #fff; overflow: hidden; }
 
-    /* ÜST YARI: CANLI KAMERA */
+    /* ÜST BÖLÜM: KAMERA (%34) */
     #camera-section {
       position: relative;
-      height: 50%;
+      height: 34%;
+      min-height: 165px;
       background: #000;
       overflow: hidden;
       border-bottom: 2px solid #333;
@@ -23,16 +23,15 @@
       height: 100%;
       object-fit: cover;
     }
-    /* Slip tutarını hizalama ve işaretleme çerçevesi */
     #scan-box {
       position: absolute;
-      top: 50%;
+      top: 52%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 78%;
-      height: 64px;
-      border: 3px solid #00e676;
-      border-radius: 8px;
+      width: 82%;
+      height: 46px;
+      border: 2.5px solid #00e676;
+      border-radius: 7px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
       pointer-events: none;
       transition: border-color 0.2s;
@@ -40,108 +39,223 @@
     #scan-box.found { border-color: #ffea00; }
     #scan-hint {
       position: absolute;
-      top: calc(50% - 54px);
+      bottom: 6px;
       width: 100%;
       text-align: center;
-      font-size: 13px;
-      color: #eee;
+      font-size: 11px;
+      color: #f4f4f5;
       text-shadow: 0 1px 3px #000;
+      pointer-events: none;
     }
     #flash-btn {
       position: absolute;
-      top: 12px;
-      right: 12px;
+      top: 8px;
+      right: 8px;
       z-index: 10;
-      padding: 8px 14px;
+      padding: 6px 11px;
       border: none;
-      border-radius: 20px;
-      background: rgba(30, 30, 30, 0.85);
+      border-radius: 16px;
+      background: rgba(24, 24, 27, 0.85);
       color: #fff;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 12px;
       cursor: pointer;
     }
     #flash-btn.active { background: #ffca28; color: #000; }
 
-    /* ALT YARI: ONAY VE TOPLAMA */
+    /* ALT BÖLÜM: ONAY, LİSTE, TOPLAM VE YAPIMCI (%66) */
     #bottom-section {
-      height: 50%;
+      height: 66%;
+      flex: 1;
       display: flex;
       flex-direction: column;
-      padding: 10px 14px;
+      padding: 8px 12px 6px;
       background: #18181b;
+      gap: 6px;
+      min-height: 0;
     }
     #confirm-box {
       background: #27272a;
-      padding: 10px;
+      padding: 8px 10px;
       border-radius: 10px;
-      margin-bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
-    #question-text {
-      font-size: 17px;
+    .top-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .amount-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+    }
+    #question-label {
+      font-size: 14px;
       font-weight: 700;
-      text-align: center;
-      margin-bottom: 8px;
+      white-space: nowrap;
     }
-    #detected-val { color: #ffea00; font-size: 20px; }
-    .btn-row { display: flex; gap: 10px; }
+    #amount-input {
+      width: 100%;
+      max-width: 135px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid #52525b;
+      background: #121214;
+      color: #ffea00;
+      font-size: 16px;
+      font-weight: 700;
+      outline: none;
+    }
+    #amount-input:focus { border-color: #38bdf8; }
+
+    #auto-yes-btn {
+      padding: 6px 9px;
+      border: 1px solid #52525b;
+      border-radius: 8px;
+      background: #3f3f46;
+      color: #e4e4e7;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #auto-yes-btn.on {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #fff;
+    }
+
+    .btn-row { display: flex; gap: 8px; }
     .btn {
       flex: 1;
-      padding: 12px;
+      padding: 9px;
       border: none;
       border-radius: 8px;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       cursor: pointer;
     }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
     #btn-yes { background: #16a34a; color: #fff; }
     #btn-no { background: #dc2626; color: #fff; }
 
     #items-list {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       list-style: none;
       padding: 4px 6px;
       background: #121214;
+      border: 1px solid #27272a;
       border-radius: 8px;
-      margin-bottom: 8px;
     }
     #items-list li {
-      padding: 6px 8px;
+      padding: 7px 6px;
       border-bottom: 1px solid #27272a;
-      font-size: 17px;
+      font-size: 16px;
       display: flex;
+      align-items: center;
       justify-content: space-between;
+      gap: 8px;
     }
+    #items-list li:last-child { border-bottom: none; }
+    .item-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .plus-sign { color: #4ade80; font-weight: 800; }
+    .del-btn {
+      background: #3f1d1d;
+      color: #f87171;
+      border: 1px solid #7f1d1d;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .del-btn:active { background: #dc2626; color: #fff; }
 
     #total-bar {
-      padding: 10px 12px;
+      padding: 8px 10px;
       background: #09090b;
       border: 1px solid #3f3f46;
       border-radius: 8px;
-      font-size: 19px;
-      font-weight: 800;
       display: flex;
+      align-items: center;
       justify-content: space-between;
+      gap: 8px;
+    }
+    .total-text {
+      font-size: 17px;
+      font-weight: 800;
       color: #4ade80;
+      white-space: nowrap;
+    }
+    .total-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .mini-btn {
+      padding: 6px 9px;
+      border-radius: 6px;
+      border: 1px solid #3f3f46;
+      background: #27272a;
+      color: #f4f4f5;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .mini-btn:active { background: #3f3f46; }
+    .reset-btn {
+      border-color: #7f1d1d;
+      background: #3f1d1d;
+      color: #fca5a5;
+    }
+
+    #footer-credit {
+      text-align: center;
+      font-size: 11px;
+      color: #a1a1aa;
+      padding-top: 1px;
     }
   </style>
 </head>
 <body>
 
-  <!-- ÜST YARI -->
+  <!-- ÜST BÖLÜM: KAMERA -->
   <div id="camera-section">
     <button id="flash-btn" onclick="toggleFlash()">Flaş: Kapalı</button>
-    <div id="scan-hint">Slip tutarını yeşil kutunun içine getirin</div>
     <video id="video" autoplay playsinline muted></video>
     <div id="scan-box"></div>
+    <div id="scan-hint">Tutarı yeşil kutunun içine getirin</div>
   </div>
 
-  <!-- ALT YARI -->
+  <!-- ALT BÖLÜM: ONAY, LİSTE, TOPLAM VE YAPIMCI -->
   <div id="bottom-section">
     <div id="confirm-box">
-      <div id="question-text">Tutar Doğru mu? <span id="detected-val">-</span></div>
+      <div class="top-controls">
+        <div class="amount-row">
+          <label id="question-label" for="amount-input">Tutar Doğru mu?</label>
+          <input
+            id="amount-input"
+            type="text"
+            inputmode="decimal"
+            placeholder="0,00"
+            oninput="onManualInput()"
+          />
+        </div>
+        <button id="auto-yes-btn" onclick="toggleAutoYes()">Otomatik Evet: Kapalı</button>
+      </div>
       <div class="btn-row">
         <button id="btn-yes" class="btn" onclick="confirmYes()" disabled>Evet</button>
         <button id="btn-no" class="btn" onclick="confirmNo()" disabled>Hayır</button>
@@ -151,9 +265,14 @@
     <ul id="items-list"></ul>
 
     <div id="total-bar">
-      <span>Genel Toplam:</span>
-      <span id="total-amount">0,00 TL</span>
+      <div class="total-text">Toplam: <span id="total-amount">0,00 TL</span></div>
+      <div class="total-actions">
+        <button id="copy-btn" class="mini-btn" onclick="copyTotal()">Kopyala</button>
+        <button id="reset-btn" class="mini-btn reset-btn" onclick="resetList()">Sıfırla</button>
+      </div>
     </div>
+
+    <div id="footer-credit">Yapımcı: Ahmet Dolu</div>
   </div>
 
   <canvas id="crop-canvas" style="display:none;"></canvas>
@@ -161,37 +280,63 @@
   <script>
     const video = document.getElementById("video");
     const scanBox = document.getElementById("scan-box");
-    const detectedValEl = document.getElementById("detected-val");
+    const amountInput = document.getElementById("amount-input");
     const btnYes = document.getElementById("btn-yes");
     const btnNo = document.getElementById("btn-no");
+    const autoYesBtn = document.getElementById("auto-yes-btn");
     const itemsList = document.getElementById("items-list");
     const totalAmountEl = document.getElementById("total-amount");
+    const copyBtn = document.getElementById("copy-btn");
     const flashBtn = document.getElementById("flash-btn");
     const canvas = document.getElementById("crop-canvas");
     const ctx = canvas.getContext("2d");
 
     let videoTrack = null;
     let torchOn = false;
+    let autoYes = false;
     let waitingConfirm = false;
-    let candidateAmount = null;
-    let total = 0;
+    let totalCents = 0;
     let worker = null;
+    let audioCtx = null;
 
-    // 1. Ekranı açık tut (Wake Lock)
+    // Rahatsız etmeyen çok kısa ve yumuşak bip sesi (~55ms)
+    function playSoftBeep() {
+      try {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) return;
+          audioCtx = new AudioContextClass();
+        }
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(740, audioCtx.currentTime);
+
+        gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.035, audioCtx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.055);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.06);
+      } catch (e) {}
+    }
+
     async function keepScreenAwake() {
       try {
         if ("wakeLock" in navigator) {
           await navigator.wakeLock.request("screen");
         }
-      } catch (e) {
-        console.log("WakeLock desteklenmiyor veya izin verilmedi:", e);
-      }
+      } catch (e) {}
     }
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") keepScreenAwake();
     });
 
-    // 2. Arka kamerayı başlat
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -206,7 +351,6 @@
       }
     }
 
-    // 3. Flaş aç/kapat
     async function toggleFlash() {
       if (!videoTrack) return;
       const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
@@ -220,7 +364,18 @@
       flashBtn.classList.toggle("active", torchOn);
     }
 
-    // 4. OCR Motorunu Başlat ve Yeşil Kutuyu Tara
+    function toggleAutoYes() {
+      autoYes = !autoYes;
+      autoYesBtn.textContent = autoYes ? "Otomatik Evet: Açık" : "Otomatik Evet: Kapalı";
+      autoYesBtn.classList.toggle("on", autoYes);
+
+      const currentCents = parseInputToCents(amountInput.value);
+      if (autoYes && currentCents !== null) {
+        addAmountToList(currentCents);
+        resetCandidate();
+      }
+    }
+
     async function initOCR() {
       worker = await Tesseract.createWorker("eng");
       await worker.setParameters({
@@ -230,29 +385,83 @@
     }
 
     function parseAmount(rawText) {
-      // Örn: 1.250,50 veya 450,00 veya 450.00 kalıbını yakala
       const match = rawText.match(/(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/);
       if (!match) return null;
-      let numStr = match[1];
-      if (numStr.includes(",") && numStr.includes(".")) {
-        numStr = numStr.replace(/\./g, "").replace(",", ".");
-      } else if (numStr.includes(",")) {
-        numStr = numStr.replace(",", ".");
-      }
-      const val = parseFloat(numStr);
-      return (!isNaN(val) && val > 0) ? val : null;
+      return parseInputToCents(match[1]);
     }
 
-    function formatTR(val) {
-      return val.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    function parseInputToCents(raw) {
+      if (!raw) return null;
+      let cleaned = String(raw).replace(/TL|₺/gi, "").replace(/\s+/g, "").trim();
+      if (!cleaned) return null;
+
+      if (cleaned.includes(",") && cleaned.includes(".")) {
+        cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+      } else if (cleaned.includes(",")) {
+        cleaned = cleaned.replace(",", ".");
+      }
+
+      const val = parseFloat(cleaned);
+      if (isNaN(val) || val <= 0) return null;
+      return Math.round(val * 100);
+    }
+
+    function formatCents(cents) {
+      return (cents / 100).toLocaleString("tr-TR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function renderTotal() {
+      totalAmountEl.textContent = formatCents(totalCents) + " TL";
+    }
+
+    function onManualInput() {
+      const parsed = parseInputToCents(amountInput.value);
+      if (parsed !== null) {
+        waitingConfirm = true;
+        btnYes.disabled = false;
+        btnNo.disabled = false;
+      } else {
+        btnYes.disabled = true;
+        btnNo.disabled = amountInput.value.trim() === "";
+      }
+    }
+
+    function addAmountToList(cents) {
+      const li = document.createElement("li");
+
+      const left = document.createElement("div");
+      left.className = "item-left";
+      left.innerHTML = `<span>${formatCents(cents)}</span><span class="plus-sign">+</span>`;
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "del-btn";
+      delBtn.textContent = "Sil";
+      delBtn.onclick = () => {
+        li.remove();
+        totalCents -= cents;
+        if (totalCents < 0) totalCents = 0;
+        renderTotal();
+      };
+
+      li.appendChild(left);
+      li.appendChild(delBtn);
+      itemsList.appendChild(li);
+      itemsList.scrollTop = itemsList.scrollHeight;
+
+      totalCents += cents;
+      renderTotal();
+      playSoftBeep();
     }
 
     async function scanLoop() {
-      if (!waitingConfirm && video.readyState === video.HAVE_ENOUGH_DATA && worker) {
+      const isEditing = document.activeElement === amountInput;
+      if (!waitingConfirm && !isEditing && video.readyState === video.HAVE_ENOUGH_DATA && worker) {
         const vw = video.videoWidth;
         const vh = video.videoHeight;
-        // Sadece ortadaki yeşil kutu bölgesini kırp
-        const cropW = Math.floor(vw * 0.78);
+        const cropW = Math.floor(vw * 0.82);
         const cropH = Math.floor(vh * 0.22);
         const cropX = Math.floor((vw - cropW) / 2);
         const cropY = Math.floor((vh - cropH) / 2);
@@ -263,14 +472,19 @@
 
         try {
           const { data: { text } } = await worker.recognize(canvas);
-          const found = parseAmount(text);
-          if (found !== null) {
-            candidateAmount = found;
-            waitingConfirm = true;
-            scanBox.classList.add("found");
-            detectedValEl.textContent = formatTR(found) + " TL";
-            btnYes.disabled = false;
-            btnNo.disabled = false;
+          const foundCents = parseAmount(text);
+          if (foundCents !== null) {
+            if (autoYes) {
+              addAmountToList(foundCents);
+              scanBox.classList.add("found");
+              setTimeout(() => scanBox.classList.remove("found"), 250);
+            } else {
+              waitingConfirm = true;
+              scanBox.classList.add("found");
+              amountInput.value = formatCents(foundCents);
+              btnYes.disabled = false;
+              btnNo.disabled = false;
+            }
           }
         } catch (e) {
           console.error(e);
@@ -280,14 +494,9 @@
     }
 
     function confirmYes() {
-      if (candidateAmount === null) return;
-      const li = document.createElement("li");
-      li.innerHTML = `<span>${formatTR(candidateAmount)}</span><span>+</span>`;
-      itemsList.appendChild(li);
-      itemsList.scrollTop = itemsList.scrollHeight;
-
-      total = Math.round((total + candidateAmount) * 100) / 100;
-      totalAmountEl.textContent = formatTR(total) + " TL";
+      const cents = parseInputToCents(amountInput.value);
+      if (cents === null) return;
+      addAmountToList(cents);
       resetCandidate();
     }
 
@@ -296,12 +505,30 @@
     }
 
     function resetCandidate() {
-      candidateAmount = null;
       waitingConfirm = false;
+      amountInput.value = "";
       scanBox.classList.remove("found");
-      detectedValEl.textContent = "-";
       btnYes.disabled = true;
       btnNo.disabled = true;
+    }
+
+    async function copyTotal() {
+      const textToCopy = formatCents(totalCents) + " TL";
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        const oldText = copyBtn.textContent;
+        copyBtn.textContent = "Kopyalandı";
+        setTimeout(() => { copyBtn.textContent = oldText; }, 1100);
+      } catch (e) {
+        alert("Kopyalanan tutar: " + textToCopy);
+      }
+    }
+
+    function resetList() {
+      itemsList.innerHTML = "";
+      totalCents = 0;
+      renderTotal();
+      resetCandidate();
     }
 
     startCamera();
