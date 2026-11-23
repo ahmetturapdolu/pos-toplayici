@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>POS Slip Toplayıcı</title>
+  <!-- Tarayıcıda çalışan OCR kütüphanesi -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { height: 100dvh; display: flex; flex-direction: column; background: #111; color: #fff; overflow: hidden; }
+
+    /* ÜST YARI: CANLI KAMERA */
+    #camera-section {
+      position: relative;
+      height: 50%;
+      background: #000;
+      overflow: hidden;
+      border-bottom: 2px solid #333;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    /* Slip tutarını hizalama ve işaretleme çerçevesi */
+    #scan-box {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 78%;
+      height: 64px;
+      border: 3px solid #00e676;
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+      transition: border-color 0.2s;
+    }
+    #scan-box.found { border-color: #ffea00; }
+    #scan-hint {
+      position: absolute;
+      top: calc(50% - 54px);
+      width: 100%;
+      text-align: center;
+      font-size: 13px;
+      color: #eee;
+      text-shadow: 0 1px 3px #000;
+    }
+    #flash-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 20px;
+      background: rgba(30, 30, 30, 0.85);
+      color: #fff;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #flash-btn.active { background: #ffca28; color: #000; }
+
+    /* ALT YARI: ONAY VE TOPLAMA */
+    #bottom-section {
+      height: 50%;
+      display: flex;
+      flex-direction: column;
+      padding: 10px 14px;
+      background: #18181b;
+    }
+    #confirm-box {
+      background: #27272a;
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+    #question-text {
+      font-size: 17px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    #detected-val { color: #ffea00; font-size: 20px; }
+    .btn-row { display: flex; gap: 10px; }
+    .btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #btn-yes { background: #16a34a; color: #fff; }
+    #btn-no { background: #dc2626; color: #fff; }
+
+    #items-list {
+      flex: 1;
+      overflow-y: auto;
+      list-style: none;
+      padding: 4px 6px;
+      background: #121214;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    #items-list li {
+      padding: 6px 8px;
+      border-bottom: 1px solid #27272a;
+      font-size: 17px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #total-bar {
+      padding: 10px 12px;
+      background: #09090b;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      font-size: 19px;
+      font-weight: 800;
+      display: flex;
+      justify-content: space-between;
+      color: #4ade80;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ÜST YARI -->
+  <div id="camera-section">
+    <button id="flash-btn" onclick="toggleFlash()">Flaş: Kapalı</button>
+    <div id="scan-hint">Slip tutarını yeşil kutunun içine getirin</div>
+    <video id="video" autoplay playsinline muted></video>
+    <div id="scan-box"></div>
+  </div>
+
+  <!-- ALT YARI -->
+  <div id="bottom-section">
+    <div id="confirm-box">
+      <div id="question-text">Tutar Doğru mu? <span id="detected-val">-</span></div>
+      <div class="btn-row">
+        <button id="btn-yes" class="btn" onclick="confirmYes()" disabled>Evet</button>
+        <button id="btn-no" class="btn" onclick="confirmNo()" disabled>Hayır</button>
+      </div>
+    </div>
+
+    <ul id="items-list"></ul>
+
+    <div id="total-bar">
+      <span>Genel Toplam:</span>
+      <span id="total-amount">0,00 TL</span>
+    </div>
+  </div>
+
+  <canvas id="crop-canvas" style="display:none;"></canvas>
+
+  <script>
+    const video = document.getElementById("video");
+    const scanBox = document.getElementById("scan-box");
+    const detectedValEl = document.getElementById("detected-val");
+    const btnYes = document.getElementById("btn-yes");
+    const btnNo = document.getElementById("btn-no");
+    const itemsList = document.getElementById("items-list");
+    const totalAmountEl = document.getElementById("total-amount");
+    const flashBtn = document.getElementById("flash-btn");
+    const canvas = document.getElementById("crop-canvas");
+    const ctx = canvas.getContext("2d");
+
+    let videoTrack = null;
+    let torchOn = false;
+    let waitingConfirm = false;
+    let candidateAmount = null;
+    let total = 0;
+    let worker = null;
+
+    // 1. Ekranı açık tut (Wake Lock)
+    async function keepScreenAwake() {
+      try {
+        if ("wakeLock" in navigator) {
+          await navigator.wakeLock.request("screen");
+        }
+      } catch (e) {
+        console.log("WakeLock desteklenmiyor veya izin verilmedi:", e);
+      }
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") keepScreenAwake();
+    });
+
+    // 2. Arka kamerayı başlat
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
+        video.srcObject = stream;
+        videoTrack = stream.getVideoTracks()[0];
+        keepScreenAwake();
+      } catch (err) {
+        alert("Kamera açılamadı. HTTPS üzerinden açtığınızdan ve izin verdiğinizden emin olun.");
+      }
+    }
+
+    // 3. Flaş aç/kapat
+    async function toggleFlash() {
+      if (!videoTrack) return;
+      const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+      if (!caps.torch) {
+        alert("Bu cihaz/tarayıcı flaş kontrolünü desteklemiyor.");
+        return;
+      }
+      torchOn = !torchOn;
+      await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+      flashBtn.textContent = torchOn ? "Flaş: Açık" : "Flaş: Kapalı";
+      flashBtn.classList.toggle("active", torchOn);
+    }
+
+    // 4. OCR Motorunu Başlat ve Yeşil Kutuyu Tara
+    async function initOCR() {
+      worker = await Tesseract.createWorker("eng");
+      await worker.setParameters({
+        tessedit_char_whitelist: "0123456789.,TL₺ "
+      });
+      scanLoop();
+    }
+
+    function parseAmount(rawText) {
+      // Örn: 1.250,50 veya 450,00 veya 450.00 kalıbını yakala
+      const match = rawText.match(/(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/);
+      if (!match) return null;
+      let numStr = match[1];
+      if (numStr.includes(",") && numStr.includes(".")) {
+        numStr = numStr.replace(/\./g, "").replace(",", ".");
+      } else if (numStr.includes(",")) {
+        numStr = numStr.replace(",", ".");
+      }
+      const val = parseFloat(numStr);
+      return (!isNaN(val) && val > 0) ? val : null;
+    }
+
+    function formatTR(val) {
+      return val.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    async function scanLoop() {
+      if (!waitingConfirm && video.readyState === video.HAVE_ENOUGH_DATA && worker) {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        // Sadece ortadaki yeşil kutu bölgesini kırp
+        const cropW = Math.floor(vw * 0.78);
+        const cropH = Math.floor(vh * 0.22);
+        const cropX = Math.floor((vw - cropW) / 2);
+        const cropY = Math.floor((vh - cropH) / 2);
+
+        canvas.width = cropW;
+        canvas.height = cropH;
+        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+        try {
+          const { data: { text } } = await worker.recognize(canvas);
+          const found = parseAmount(text);
+          if (found !== null) {
+            candidateAmount = found;
+            waitingConfirm = true;
+            scanBox.classList.add("found");
+            detectedValEl.textContent = formatTR(found) + " TL";
+            btnYes.disabled = false;
+            btnNo.disabled = false;
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      setTimeout(scanLoop, 450);
+    }
+
+    function confirmYes() {
+      if (candidateAmount === null) return;
+      const li = document.createElement("li");
+      li.innerHTML = `<span>${formatTR(candidateAmount)}</span><span>+</span>`;
+      itemsList.appendChild(li);
+      itemsList.scrollTop = itemsList.scrollHeight;
+
+      total = Math.round((total + candidateAmount) * 100) / 100;
+      totalAmountEl.textContent = formatTR(total) + " TL";
+      resetCandidate();
+    }
+
+    function confirmNo() {
+      resetCandidate();
+    }
+
+    function resetCandidate() {
+      candidateAmount = null;
+      waitingConfirm = false;
+      scanBox.classList.remove("found");
+      detectedValEl.textContent = "-";
+      btnYes.disabled = true;
+      btnNo.disabled = true;
+    }
+
+    startCamera();
+    initOCR();
+  </script>
+</body>
+</html>
