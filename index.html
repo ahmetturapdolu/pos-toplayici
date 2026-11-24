@@ -34,15 +34,15 @@
       border-radius: 7px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
       pointer-events: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color 0.12s, box-shadow 0.12s;
     }
     #scan-box.locking {
       border-color: #f59e0b;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 12px rgba(245, 158, 11, 0.8);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 12px rgba(245, 158, 11, 0.85);
     }
     #scan-box.found {
       border-color: #ffea00;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 14px rgba(255, 234, 0, 0.85);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 14px rgba(255, 234, 0, 0.9);
     }
     #scan-hint {
       position: absolute;
@@ -310,6 +310,7 @@
     let pendingAutoCents = null;
     let pendingAutoStart = 0;
     const AUTO_HOLD_MS = 1000;
+    const SCAN_INTERVAL_MS = 220;
 
     function playSoftBeep() {
       try {
@@ -363,7 +364,11 @@
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
         video.srcObject = stream;
@@ -402,7 +407,7 @@
       scanLoop();
     }
 
-    // Virgüslü/noktalı tutarları önceliklendirir; bulamazsa düz sayıları dener
+    // Ondalıklı tutarları önceliklendirir; çok uzun fiş/belge numaralarını eler
     function parseAmount(rawText) {
       if (!rawText) return null;
 
@@ -410,17 +415,17 @@
       if (decimalMatches && decimalMatches.length > 0) {
         for (let i = decimalMatches.length - 1; i >= 0; i--) {
           const cents = parseInputToCents(decimalMatches[i]);
-          if (cents !== null && cents > 0) {
+          if (cents !== null && cents >= 100 && cents <= 99999999) {
             return cents;
           }
         }
       }
 
-      const plainMatches = rawText.match(/\d+(?:[.,]\d+)?/g);
+      const plainMatches = rawText.match(/\d{1,6}(?:[.,]\d+)?/g);
       if (plainMatches && plainMatches.length > 0) {
         for (let i = plainMatches.length - 1; i >= 0; i--) {
           const cents = parseInputToCents(plainMatches[i]);
-          if (cents !== null && cents > 0) {
+          if (cents !== null && cents >= 100 && cents <= 99999999) {
             return cents;
           }
         }
@@ -438,6 +443,11 @@
         cleaned = cleaned.replace(/\./g, "").replace(",", ".");
       } else if (cleaned.includes(",")) {
         cleaned = cleaned.replace(",", ".");
+      } else if (cleaned.includes(".")) {
+        const parts = cleaned.split(".");
+        if (parts.length === 2 && parts[1].length === 3) {
+          cleaned = parts[0] + parts[1];
+        }
       }
 
       const val = parseFloat(cleaned);
@@ -501,14 +511,14 @@
         const vw = video.videoWidth;
         const vh = video.videoHeight;
         const cropW = Math.floor(vw * 0.82);
-        const cropH = Math.floor(vh * 0.22);
+        const cropH = Math.floor(vh * 0.18);
         const cropX = Math.floor((vw - cropW) / 2);
-        const cropY = Math.floor((vh - cropH) / 2);
+        const cropY = Math.floor(vh * 0.52 - cropH / 2);
 
         canvas.width = cropW;
         canvas.height = cropH;
         ctx.save();
-        ctx.filter = "grayscale(100%) contrast(125%)";
+        ctx.filter = "grayscale(100%) contrast(135%)";
         ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
         ctx.restore();
 
@@ -532,7 +542,7 @@
                     if (autoYes && pendingAutoCents === null) {
                       setBoxState(null, "Tutarı yeşil kutunun içine getirin");
                     }
-                  }, 300);
+                  }, 250);
                 } else {
                   const kalan = Math.max(0.1, (AUTO_HOLD_MS - elapsed) / 1000).toFixed(1);
                   setBoxState("locking", `Sabitleniyor (${kalan} sn): ${formatted} TL`);
@@ -559,7 +569,7 @@
         }
       }
 
-      setTimeout(scanLoop, 350);
+      setTimeout(scanLoop, SCAN_INTERVAL_MS);
     }
 
     function confirmYes() {
